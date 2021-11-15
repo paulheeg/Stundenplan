@@ -2,38 +2,47 @@
 
 'use strict'
 
-
-/*++++++++++++++
-+ Stundenplan als One-page = mit wenig zwischenladen
-++++++++++++++*/
-
-// globale Variablen
-// zum Wiederherstellen von Einträgen
-// ** gut wäre ein Objekt Global mit set und get
+/* 
+ * ++++++++++++++
+ * Stundenplan (als One-page)
+ *++++++++++++++
+ * Verwendung:
+ * in html
+ * <div id="bereich"></div>
+ * in javascript
+ * initialisieren(name_der_globalen_Variablen,json_des_Objekts); 
+ * ...
+ * aufruf('bereich');
+*/
 
 // Die globalen Variablen
-// Initialisieren beim Start 
-let Standard={};  
+// Standard:  {typ: dozent_id | klasse | tag | raum, inhalt: STR, planung: 0 | 1, jahreswoche: STR JAHR_KALENDERWOCHE}
+let Standard={}; 
 let Wo_ist=[];
 let Wo_ist_cache=[];
-let U_zeit=[];
-let Dozent=[];
-let Stundenplan_tabelle='';
-let Raeume=[];
-let Alle_lf=[];
+const Klassen_liste=[];
+
+
+let U_zeit=[]; // der akuell eingetragene Unterricht
+let U_soll=[]; // der geplante Unterricht
+let Alle_lf=[]; // aller möglicher Unterricht
+
+let Dozenten=[]; // alle Dozenten
+let Raeume=[]; // alle Räume
 
 function initialisieren(was,json){
-    // {typ: ,inhalt: jahreswoche: soll : array, alle : array 
-    if('Standard'===was) Standard=_parse(was,json);
-    // ***
-    else if('Stundenplan_tabelle'=== was) Stundenplan_tabelle=json; // ** Namen offen gefällt mir nicht besser als Teil von Standard planung ja/nein 
+    if('Standard'===was) Standard=_parse(was,json);  
     else if('Wo_ist'===was) Wo_ist=_parse(was,json);
     
 // ['id'=>$e['id'], 'klasse'=>$e['klasse'], 'klasse_id'=>$e['klasse_id'],  'lernfeld'=>$e['lernfeld'], 'lernfeld_id'=>$e['lernfeld_id'], 'schwerpunkt'=>$e['schwerpunkt'], 'schwerpunkt_id'=>$e['schwerpunkt_id'], 'dozent_id'=>$e['dozent_id'], 'dozent'=>$e['dozent'], 'von'=> $e['von'], 'bis'=>$e['bis'], 'hinweis'=>$e['hinweis'], 'unterrichtsform'=>$e['unterrichtsform'], 'raum'=>$e['raum'] ];
     else if('U_zeit'===was) U_zeit=_parse(was,json);
-    else if('U_zeit'===was) U_zeit=_parse(was,json);
+    else if('U_soll'===was) {
+        U_soll=_parse(was,json);
+        // Klassenliste nur einmal aufbauen
+        U_soll.forEach(x=>Klassen_liste.push(x.inhalt));
+    }
     // {"id":1, 'name': 'Paul Heeg'}
-    else if('Dozent'===was) Dozent=_parse(was,json);
+    else if('Dozenten'===was) Dozenten=_parse(was,json);
     else if('Raeume'===was) Raeume=_parse(was,json);
     else if('Alle_lf'===was) Alle_lf=_parse(was,json);
     else alert("Programmfehler initialisieren "+was);
@@ -50,10 +59,15 @@ function initialisieren(was,json){
 // Globale Variablen zur Kommunikation zwischen Teilen des Programms
 const U_alt={'bereich':'','id':0,'neu_id':0}; // wird benutzt für wiederherstellen
 const Kopier_modus={'planung': 0, 'jahreswoche':'', 'aktiv' : 0, 'alle' : [], 'tage' : []};
+const Neu_v=[]; // das v hinter neu wird erst sichtbar, wenn ein Element markiert ist. 
+	
+// kopiere einzelnen Unterricht
+const Zwischenablage={'id':0, 'bereich':'','alter_hintergrund':'#eeeeee'};
 
 // Schreibabkürzungen
 const TAG=86400000;
-const wochentage=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag'];
+const Wochentage=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag'];
+
 
 // start kopieren
 // ** bitte wonaders hin tun
@@ -93,7 +107,7 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
     const wtage=['Mo','Di','Mi','Do','Fr'];
     
     const str='klasse'===Standard.typ ? Standard.inhalt : 
-        'tag'==Standard.typ ? wtage[Standard.inhalt] : Dozent.find(x => x.id===Standard.inhalt).name;
+        'tag'==Standard.typ ? wtage[Standard.inhalt] : Dozenten.find(x => x.id===Standard.inhalt).name;
     ueberschrift.appendChild(document.createTextNode(` Kopiere ${str} von Woche ${jahreswoche} `));
 
 
@@ -107,7 +121,7 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
 
     const button_planung=document.createElement('button');
     button_planung.id='planung';
-    if(Kopier_modus.planung) button_planung.innerText="Stundenplan für Schüler*innen";
+    if(Kopier_modus.planung) button_planung.innerText="Stundenplan für alle";
     else button_planung.innerText="Stundenplan Planung";
     const onclick=`javascript:kopier_fenster('${bereich}','${typ}','${was}','${jahreswoche}',${Kopier_modus.planung? 0 : 1})`;
     button_planung.setAttribute('onclick',onclick);
@@ -123,7 +137,6 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
     const tabelle=document.createElement('table');
     tabelle.style.border="2px solid black";
     tabelle.id="tabelle_zwei";
-    const klassen_liste=Standard.klassen.map(e=>e.inhalt); // die Klassen des Hauptfensters
 
     // siehe Wochennavigation
     const l = jahreswoche.split('_');
@@ -136,7 +149,7 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
     // Kopfzeile der Tabelle
     if('tag'==typ){
         const tr=document.createElement('tr');
-        for(const klasse of klassen_liste){ 
+        for(const klasse of Klassen_liste){ 
             const th=document.createElement('th');
             th.style.border="1px solid brown";
             th.appendChild(document.createTextNode(klasse));
@@ -159,7 +172,7 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
     }
     
     // 6 X N leere Felder
-    const spalten='tag'==Standard.typ?klassen_liste.length:wochentage.length;
+    const spalten='tag'==Standard.typ ? Klassen_liste.length:Wochentage.length;
     const zeilen=5;
     // zeile null für Tagesinfos und Termin
     const tr=document.createElement('tr');
@@ -177,20 +190,19 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
     };
     b.appendChild(tabelle);
     
-    if('dozent_id'==Standard.typ) U_zeit.filter(e=>e.dozent_id==Standard.inhalt).forEach(x => markiere(x,klassen_liste));
-    else if('klasse'==Standard.typ) U_zeit.filter(e=>e.klasse==Standard.inhalt).forEach(x => markiere(x,klassen_liste));
-    else if('raum'==Standard.typ) U_zeit.filter(e=>e.raum==Standard.inhalt).forEach(x => markiere(x,klassen_liste));
+    if('dozent_id'==Standard.typ) U_zeit.filter(e=>e.dozent_id==Standard.inhalt).forEach(x => markiere(x));
+    else if('klasse'==Standard.typ) U_zeit.filter(e=>e.klasse==Standard.inhalt).forEach(x => markiere(x));
+    else if('raum'==Standard.typ) U_zeit.filter(e=>e.raum==Standard.inhalt).forEach(x => markiere(x));
     else { // if('tag'==Standard.typ);
         const v= parseInt(Standard.inhalt); // im blocktag die letzte Ziffer gedreht auf getDay()
         const tag_nr= (6==v) ? 0 : v + 1;
-        U_zeit.filter(x=>parseInt(new Date(x.von*1000).getDay())==tag_nr).forEach(y=> markiere(y,klassen_liste));
+        U_zeit.filter(x=>parseInt(new Date(x.von*1000).getDay())==tag_nr).forEach(y=> markiere(y));
     }
     
     // den Unterricht dieser Woche markieren = von hier kann man nicht kopieren
-    function markiere(u,klassen_liste){
+    function markiere(u){
         const zeile=zeile_nr(u.von);
-        const spalte='tag'===typ ? klassen_liste.indexOf(u.klasse) : _wochentag_nr(u.von);
-        // klassen_liste.indexOf(u.klasse);
+        const spalte='tag'===typ ? Klassen_liste.indexOf(u.klasse) : _wochentag_nr(u.von);
         const b=document.getElementById(`zwei_${zeile}_${spalte}`);
         b.style.backgroundColor='#bbbbbb';
             
@@ -221,15 +233,13 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
 
     
     function _unterricht_eintragen(bereich,typ,inhalt,u_zeiten){
-        // const b = document.getElementById(bereich);
-    //     const klassen_liste=Standard.klassen.map(e=>e.inhalt);
         
         if('dozent_id'===typ) u_zeiten.filter(e=>e.dozent_id==inhalt).forEach(e => _u2bereich(typ,[],e));
-        else if('klasse'==typ) u_zeiten.filter(e=>e.klasse==inhalt).forEach(e => _u2bereich(typ,klassen_liste,e));
+        else if('klasse'==typ) u_zeiten.filter(e=>e.klasse==inhalt).forEach(e => _u2bereich(typ,Klassen_liste,e));
         else { // if('tag'==typ);
             const v= parseInt(inhalt); 
             const tag_nr= (6==v) ? 0 : v + 1;
-            u_zeiten.filter(x=>parseInt(new Date(x.von*1000).getDay())==tag_nr).forEach(y=>_u2bereich(typ,klassen_liste,y));
+            u_zeiten.filter(x=>parseInt(new Date(x.von*1000).getDay())==tag_nr).forEach(y=>_u2bereich(typ,Klassen_liste,y));
         }
     
         // trägt ein U_zeit Element ein Dozent und Klasse
@@ -237,7 +247,7 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
             // const b = document.getElementById(bereich);
             const zeile=zeile_nr(u.von);
             const spalte='tag'===typ ? klassen_liste.indexOf(u.klasse) : _wochentag_nr(u.von);
-            // klassen_liste.indexOf(u.klasse);
+            
             const b=document.getElementById(`zwei_${zeile}_${spalte}`);
             
             const div=document.createElement('div');
@@ -278,18 +288,6 @@ function kopier_fenster(bereich,typ,was,jahreswoche,planung){
             b.appendChild(div);
             b.appendChild(document.createElement('br'));
         }
-
-     /*
-        function _u2bereich_tag(u){
-            const zeile=zeile_nr(u.von);                
-            const spalte=klassen_liste.indexOf(u.klasse);
-            const b=document.getElementById(`zwei_${zeile}_${spalte}`);
-            const div=document.createElement('div');
-            div.id=`u2_${u.id}`;
-            b.appendChild(div);
-        // ausgabe_html(div.id,u.id,u);
-        }
-        */
         
     }
 }
@@ -298,7 +296,7 @@ function kopier_eintragen(liste){
     const id_liste=liste.map(x=>x.id);
     const aufruf=`stdplan_editieren_eintragen.php?typ=kopier_eintragen&planung=${Standard.planung}&von_planung=${Kopier_modus.planung}&jahreswoche=${Standard.jahreswoche}&inhalt=${JSON.stringify(id_liste)}`;
     
-    alert(aufruf);
+   // alert(aufruf);
     
     const req = getXMLHttpRequest();
 	if(! req) {alert("kann kein HttpRequest aufbauen"); return;}
@@ -341,12 +339,6 @@ function kopier_eintragen_element(u_json){
 
 // ende Abschnitt kopieren
 
-// ** das muss eine getrennte Funktion sein und nicht in ausgabe()! 
-// ** Grund: Die Seite in dem Zustand laden, in dem sich das System zum Zeitpunkt des clicks befindet und nicht beim Aufruf von ausgabe()
-function neu_laden(){
-    // alert(`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${Standard.jahreswoche}&planung=${Stundenplan_tabelle==='stundenplan_in_planung' ? 1 : 0}`);
-    window.location=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${Standard.jahreswoche}&planung=${Stundenplan_tabelle==='stundenplan_in_planung' ? 1 : 0}`;
-}
 
 // startet die im Daten eingegebene Kalenderwoche
 function datum_eingeben(bereich){
@@ -393,6 +385,16 @@ function datum_eingeben(bereich){
     window.location=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${jahreswoche}&planung=${Standard.planung}`;
 }
 
+// jahreswoche_sekunden = Montag 0:00 lokaler Zeit in Sekunden ab 1.1.1970
+function jahreswoche_sekunden(jahreswoche){
+    const l = jahreswoche.split('_');
+    const vierter= new Date(l[0],0,4);
+    const woche_nr=parseInt(l[1]);
+    const tag = new Date(vierter.getTime()+TAG*7*(woche_nr-1));
+    return(tag.getTime()/1000);
+}
+
+
 // Rückgabe: {vor: str, zurueck: str}
 function woche_vor_zurueck(jahreswoche){
     const l = jahreswoche.split('_');
@@ -406,69 +408,47 @@ function woche_vor_zurueck(jahreswoche){
     return(ergebnis);
 }
 
-function wochen_navigation(kalenderwoche){
-    const l = kalenderwoche.split('_');
-    const vierter= new Date(l[0],0,4);
-    const woche_nr=parseInt(l[1]);
-    const ersterDonnerstag= new Date(vierter.getTime() + (3- ((vierter.getDay()+6) % 7 )) * TAG);
-    const montag=new Date(ersterDonnerstag.getTime()+TAG*7*(woche_nr -1)-TAG*3);
-    const freitag=new Date(ersterDonnerstag.getTime()+TAG*7*(woche_nr -1)+TAG);
-    const str1=Standard.planung ? ' in Planung ' : '';
-    const str=` Stundenplan editieren ${str1} ${montag.getDate()}.${montag.getMonth()+1} - ${freitag.getDate()}.${freitag.getMonth()+1}.${montag.getFullYear()} (${l[1]}. Woche) `;
-    const ueberschrift=document.createElement('h1');
-
-    const vor_zurueck=woche_vor_zurueck(kalenderwoche);
-    const link_zurueck=document.createElement('a');
-    const planung= 'stundenplan_in_planung'==Stundenplan_tabelle ? 1 : 0;
-    
-    link_zurueck.href=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${vor_zurueck.zurueck}&planung=${planung}`;
-    
-    link_zurueck.innerHTML='&lt;&lt;';
-    ueberschrift.appendChild(link_zurueck);
-
-    ueberschrift.appendChild(document.createTextNode(str));
-    
-    const link_vor=document.createElement('a');
-    link_vor.href=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${vor_zurueck.vor}&planung=${planung}`;
-    
-    link_vor.innerHTML='&gt;&gt;';
-    ueberschrift.appendChild(link_vor);
-    
-    return(ueberschrift);
-    
-}
-
-// zu dem normalen Stundenplan
-function zu_ohne_editieren(){
-    document.location.href=`stdplan.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&planung=${Standard.planung}&jahreswoche=${Standard.jahreswoche}`; 
-}
-
 // die globale Steuerung oberste Ebene
     
 // Ausgabe aller Einträge in divs
 function ausgabe(bereich){
     const b=document.getElementById(bereich);
     b.innerHTML='';
+    Zwischenablage.id=0;
+    Zwischenablage.bereich='';
+    Zwischenablage.alter_hintergrund='#eeeeee';
+    Neu_v.length=0;
     
-    const ohne_editieren=document.createElement('div');
-    ohne_editieren.style.float='right';
-    
-    const ohne_button=document.createElement('button');
-    ohne_button.onclick=function() {zu_ohne_editieren()};
-    ohne_button.appendChild(document.createTextNode('ohne editieren'));
-    ohne_editieren.appendChild(ohne_button);
-    b.appendChild(ohne_editieren);
-    // printf("<div style=\"float: right\">ohne Editieren</div>");
-
-    
-    b.appendChild(wochen_navigation(Standard.jahreswoche));
-    
-        // link zu zweitem Fenster
+    // const ohne_editieren=document.createElement('div');
+    // ohne_editieren.style.float='right';
+ 
+    // eigenes neu Laden erforderlich wegen onePage!
     const neu_laden=document.createElement('button');
-    neu_laden.setAttribute('onclick','neu_laden()');
+    neu_laden.onclick=function () {window.location=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${Standard.jahreswoche}&planung=${Standard.planung}`};
     neu_laden.innerHTML="<b>&#8635;</b>";
     b.appendChild(neu_laden);
- 
+    b.appendChild(document.createTextNode(' '));
+    
+    const zeit_eingabe=document.createElement('input');
+    zeit_eingabe.setAttribute('size','5pt');
+    zeit_eingabe.id='zeit_eingabe';
+    zeit_eingabe.value='?';
+    zeit_eingabe.setAttribute('onchange',`datum_eingeben('${zeit_eingabe.id}')`);
+
+    const diff_zeit= new Date().getTime() - jahreswoche_sekunden(Standard.jahreswoche) * 1000;
+    if(diff_zeit>=0 && diff_zeit<TAG*7+1) b.appendChild(document.createTextNode(" Datum: "));
+    else {
+        const a=document.createElement('a');
+        a.href=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=0&planung=${Standard.planung}`;
+        a.innerText=" Datum ";
+        b.appendChild(a);
+    }
+    
+    
+    b.appendChild(zeit_eingabe);
+    b.appendChild(document.createTextNode(' '));
+
+    
     const zweifenster=document.createElement('button');
     zweifenster.id='zweifenster_button'
     
@@ -483,18 +463,61 @@ function ausgabe(bereich){
         zweifenster.setAttribute('onclick',onclick);
     }
     b.appendChild(zweifenster);
-    
+    b.appendChild(document.createTextNode(' '));
+
     if(Kopier_modus.aktiv) 
         kopier_fenster('zweitesfenster',Standard.typ,Standard.inhalt,Kopier_modus.jahreswoche,Kopier_modus.planung);
     
-    const zeit_eingabe=document.createElement('input');
-    zeit_eingabe.setAttribute('size','5pt');
-    zeit_eingabe.id='zeit_eingabe';
-    zeit_eingabe.value='?';
-    zeit_eingabe.setAttribute('onchange',`datum_eingeben('${zeit_eingabe.id}')`);
-    b.appendChild(document.createTextNode(" Datum eingeben: "));
-    b.appendChild(zeit_eingabe);
-   
+    const link_planen=document.createElement('button');
+    link_planen.onclick=function () {window.location=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${Standard.jahreswoche}&planung=${1===Standard.planung?0:1}`};
+    link_planen.innerText= 1 ===Standard.planung ? 'für alle' : 'in Planung';
+    b.appendChild(link_planen);
+    b.appendChild(document.createTextNode(' '));
+    
+    if(Standard.planung) {
+        const link_planen=document.createElement('button');
+        link_planen.onclick=function () {window.location=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${Standard.jahreswoche}&planung=${Standard.planung}`};
+        if('klasse'==Standard.typ) link_planen.innerText=`eintragen ${Standard.inhalt}`;
+        else link_planen.innerText='fest eintragen';
+        b.appendChild(link_planen);
+        b.appendChild(document.createTextNode(' '));
+    }
+
+    
+    // ** Links zu dem allgemeinen System
+    const link_curriculum=document.createElement('button');
+    if('klasse'==Standard.typ) link_curriculum.onclick=function() {window.open(`curriculum_klasse.php?klasse=${Standard.inhalt}`); };
+    else link_curriculum.onclick=function() {window.open(`curriculum_klasse.php`); };
+    link_curriculum.appendChild(document.createTextNode('Curriculum'));
+    b.appendChild(link_curriculum);
+    
+    const link_wo_ist=document.createElement('button');
+    
+    
+    link_wo_ist.onclick=function() {window.open(`../nichtda/wo_ist.php?t=${jahreswoche_sekunden(Standard.jahreswoche)}`); };
+
+    link_wo_ist.appendChild(document.createTextNode('wo ist'));
+    b.appendChild(link_wo_ist);
+//    b.appendChild(document.createTextNode(' '));
+    
+    const ohne_button=document.createElement('button');
+    ohne_button.onclick=function() {
+        document.location.href=`stdplan.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&planung=${Standard.planung}&jahreswoche=${Standard.jahreswoche}`;
+    }
+
+    ohne_button.appendChild(document.createTextNode('ohne editieren'));
+    b.appendChild(ohne_button);
+    // printf("<div style=\"float: right\">ohne Editieren</div>");
+   const link_start=document.createElement('button');
+    link_start.onclick=function() {location.href=`../index.php`; };
+    link_start.appendChild(document.createTextNode('Startseite'));
+    b.appendChild(link_start);
+//    b.appendChild(document.createTextNode(' '));
+    
+
+    
+    b.appendChild(wochen_navigation(Standard.jahreswoche));
+    
     const kopf=document.createElement('div');
     kopf.id='kopfbereich';
     b.appendChild(kopf);
@@ -536,15 +559,28 @@ function ausgabe(bereich){
         const ersterDonnerstag= new Date(vierter.getTime() + (3- ((vierter.getDay()+6) % 7 )) * TAG);
         const montag=new Date(ersterDonnerstag.getTime()+TAG*7*(woche_nr -1)-TAG*3);
         const freitag=new Date(ersterDonnerstag.getTime()+TAG*7*(woche_nr -1)+TAG);
-        const str1=Standard.planung ? ' in Planung ' : '';
-        const str=` Stundenplan editieren ${str1} ${montag.getDate()}.${montag.getMonth()+1} - ${freitag.getDate()}.${freitag.getMonth()+1}.${montag.getFullYear()} (${l[1]}. Woche) `;
+        const str2=Standard.planung ? ' in Planung ' : '';
+        const str1=`${str2} ${montag.getDate()}.${montag.getMonth()+1} - ${freitag.getDate()}.${freitag.getMonth()+1}.${montag.getFullYear()} (${l[1]}. Woche)`;
+        
+        let str='';
+        
+        str=`x Stundenplan editieren ${str1} `;
+        
+        if('dozent_id'==Standard.typ) str=`Dozent*in: ${Dozenten.find(e=>e.id==Standard.inhalt).name} ${str1}`; 
+        else if('klasse'==Standard.typ) str=`Klasse: ${Standard.inhalt}  ${str1}`;
+        else if('raum'==Standard.typ) str=`Raum: ${Standard.inhalt}  ${str1}`;
+        else if('tag'==Standard.typ) {
+            const w_tag_nr=parseInt(Standard.inhalt);
+            const heute=new Date(montag.getTime()+ TAG *w_tag_nr);
+            str=`${Wochentage[w_tag_nr]}, ${heute.getDate()}.${heute.getMonth()+1}.${heute.getFullYear()} ${str2} (${l[1]}. Woche)`;
+        }
+
         const ueberschrift=document.createElement('h1');
 
         const vor_zurueck=woche_vor_zurueck(kalenderwoche);
         const link_zurueck=document.createElement('a');
-        const planung= 'stundenplan_in_planung'==Stundenplan_tabelle ? 1 : 0;
     
-        link_zurueck.href=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${vor_zurueck.zurueck}&planung=${planung}`;
+        link_zurueck.href=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${vor_zurueck.zurueck}&planung=${Standard.planung}`;
     
         link_zurueck.innerHTML='&lt;&lt;';
         ueberschrift.appendChild(link_zurueck);
@@ -552,15 +588,13 @@ function ausgabe(bereich){
         ueberschrift.appendChild(document.createTextNode(str));
     
         const link_vor=document.createElement('a');
-        link_vor.href=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${vor_zurueck.vor}&planung=${planung}`;
+        link_vor.href=`stundenplan_editieren.php?typ=${Standard.typ}&inhalt=${Standard.inhalt}&jahreswoche=${vor_zurueck.vor}&planung=${Standard.planung}`;
     
         link_vor.innerHTML='&gt;&gt;';
         ueberschrift.appendChild(link_vor);
     
-        return(ueberschrift);
-    
+        return(ueberschrift);    
     }
-
 }
     
 
@@ -582,7 +616,7 @@ function starten_kopf(bereich){
     // klassen
     const klein=document.createElement('p');
     klein.style.fontSize='smaller';
-    for(const klasse of Standard.klassen.map(e=>e.inhalt)){
+    for(const klasse of U_soll.map(e=>e.inhalt)){
         if('klasse'==Standard.typ && klasse==Standard.inhalt){ 
             klein.appendChild(document.createTextNode(`${klasse} `));
         }
@@ -599,7 +633,7 @@ function starten_kopf(bereich){
     
     // dozenten
     // sämtliche Lehrer*innen
-    for(const lehrer of Dozent.filter(e=>e.id>0)){
+    for(const lehrer of Dozenten.filter(e=>e.id>0)){
         
         if('dozent_id'==Standard.typ && lehrer.id==Standard.inhalt){ 
             klein.appendChild(document.createTextNode(`${lehrer.name} `));
@@ -634,8 +668,7 @@ function starten_kopf(bereich){
     klein.appendChild(document.createElement('br'));
         
     // Wochentage
-    // const wochentage=['Montag','Dienstag','Mittwoch','Donnerstag','Freitag'];
-    wochentage.forEach((tag,i) => {
+    Wochentage.forEach((tag,i) => {
         if('tag'==Standard.typ && i==Standard.inhalt){
             klein.appendChild(document.createTextNode(`${tag}\xa0 `));
         }
@@ -665,40 +698,6 @@ function starten_kopf(bereich){
     
     b.appendChild(klein);
     
-    // Überschrift
-    const ueberschrift=document.createElement('h2');
-    const tag=new Date(Standard.montag*1000);
-
-    if('dozent_id'==Standard.typ) {
-        const name=Dozent.find(e=>e.id==Standard.inhalt).name;
-        const von=`${tag.getDate()}.${tag.getMonth()+1}.${tag.getFullYear()}`;
-        const freitag=new Date(Standard.montag*1000);
-        freitag.setDate(freitag.getDate() + 4);
-        const bis=`${freitag.getDate()}.${freitag.getMonth()+1}.${freitag.getFullYear()}`;
-        ueberschrift.appendChild(document.createTextNode(`Dozent: ${name} Woche: ${von} bis ${bis}`));
-    } else if('klasse'==Standard.typ){
-        const name=Standard.inhalt;
-        const von=`${tag.getDate()}.${tag.getMonth()+1}.${tag.getFullYear()}`;
-        const freitag=new Date(Standard.montag*1000);
-        freitag.setDate(freitag.getDate() + 4);
-        const bis=`${freitag.getDate()}.${freitag.getMonth()+1}.${freitag.getFullYear()}`;
-        ueberschrift.appendChild(document.createTextNode(`Klasse: ${name} Woche: ${von} bis ${bis}`));
-    } else if('tag'==Standard.typ) {
-        const tag_nr=parseInt(Standard.inhalt);
-        const name=wochentage[tag_nr];
-        tag.setDate(tag.getDate() + tag_nr);
-        const tag_str=`${tag.getDate()}.${tag.getMonth()+1}.${tag.getFullYear()}`;
-        ueberschrift.appendChild(document.createTextNode(`Wochentag: ${name}  ${tag_str}`));
-    } else { // raum
-        const von=`${tag.getDate()}.${tag.getMonth()+1}.${tag.getFullYear()}`;
-        const freitag=new Date(Standard.montag*1000);
-        freitag.setDate(freitag.getDate() + 4);
-        const bis=`${freitag.getDate()}.${freitag.getMonth()+1}.${freitag.getFullYear()}`;
-        ueberschrift.appendChild(document.createTextNode(`Raum: ${Standard.inhalt} Woche: ${von} bis ${bis}`));
-    }
-    
-    b.appendChild(ueberschrift);
-    
     // b.appendChild(document.createTextNode(JSON.stringify(Standard)));
 }
 
@@ -709,13 +708,12 @@ function starten_tabelle(bereich,unterricht){
     const tabelle=document.createElement('table');
     // tabelle.setAttribute('border',2);
     tabelle.style.border="2px solid black";
-    const klassen_liste=Standard.klassen.map(e=>e.inhalt);
-    const tag=new Date(Standard.montag*1000);
+    const tag=new Date(jahreswoche_sekunden(Standard.jahreswoche)*1000);
     
     // Kopfzeile der Tabelle
     if('tag'==Standard.typ){
         const tr=document.createElement('tr');
-        for(const klasse of klassen_liste){ 
+        for(const klasse of Klassen_liste){ 
             const th=document.createElement('th');
             th.style.border="1px solid green";
             th.appendChild(document.createTextNode(klasse));
@@ -739,7 +737,7 @@ function starten_tabelle(bereich,unterricht){
     }
     
     // 6 X N leere Felder
-    const spalten='tag'==Standard.typ?klassen_liste.length:wochentage.length;
+    const spalten='tag'==Standard.typ ? Klassen_liste.length:Wochentage.length;
     const zeilen=5;
     // zeile null für Tagesinfos und Termin
     const tr=document.createElement('tr');
@@ -839,7 +837,7 @@ function starten_tabelle(bereich,unterricht){
             div.appendChild(document.createElement('br'));
             div.appendChild(document.createTextNode(x.kurzinfo)) ;
         }
-        b.appendChild(div);
+        if(b) b.appendChild(div); // * Termine am Wochenende haben keine Spalte
 
     }
     );
@@ -910,7 +908,7 @@ function starten_tabelle(bereich,unterricht){
      
     function _u2bereich_tag(u){
         const zeile=zeile_nr(u.von);                
-        const spalte=klassen_liste.indexOf(u.klasse);
+        const spalte=Klassen_liste.indexOf(u.klasse);
         const b=document.getElementById(`feld_${zeile}_${spalte}`);
         const div=document.createElement('div');
         div.id=`u_${u.id}`;
@@ -925,14 +923,23 @@ function starten_tabelle(bereich,unterricht){
 
 // trägt ein U_zeit Element ein
 function u_bereich(u){ 
-    alert(JSON.stringify(u));
+    // alert(JSON.stringify(u));
         const zeile=zeile_nr(u.von);
         const spalte='tag'===Standard.typ ? Klassen_liste.indexOf(u.klasse) : _wochentag_nr(u.von);
         const b=document.getElementById(`feld_${zeile}_${spalte}`);
         if(!b) alert(`feld_${zeile}_${spalte}`);
         const div=document.createElement('div');
         div.id=`u_${u.id}`;
-        b.appendChild(div);
+        
+        // 'neu' muss immer am Ende stehen
+        const liste=Array.from(b.childNodes);
+        
+        alert(liste.length);
+        
+        const neu_knoten= liste.length > 0 ? liste.find(x => 'neu'==x.innerHTML) : undefined;
+        
+        if(neu_knoten) b.insertBefore(div,neu_knoten);
+        else b.appendChild(div);
         // b.appendChild(document.createElement('br'));
         ausgabe_html(div.id,u.id,u);
 }
@@ -992,7 +999,8 @@ function starten_zeiten(bereich){
         const tr=document.createElement('tr');
 
         if('tag'==Standard.typ){
-            const doz= Dozent.find(x=>x.id==wo_ist.dozent_id) ?? {'name':'??'};
+            const doz= Dozenten.find(x=>x.id==wo_ist.dozent_id);
+            if(! doz) continue; // ?? {'name':`?? ${wo_ist.dozent_id}`};
             if(alt==wo_ist.dozent_id) tab(tr,'');
             else tab(tr,doz.name ); 
             const von=new Date(wo_ist.von*1000).toTimeString().substring(0,5);
@@ -1008,7 +1016,7 @@ function starten_zeiten(bereich){
             else tab(tr,wochentage[wo_ist.tag]);
             alt=wo_ist.tag;
             if('klasse'==Standard.typ){
-                const doz= Dozent.find(x=>x.id==wo_ist.dozent_id) ?? {'name':'??'};
+                const doz= Dozenten.find(x=>x.id==wo_ist.dozent_id) ?? {'name':'??'};
                 tab(tr,doz.name);
             }
             // if(x.von > 0) tab(tr,new Date(x.von*1000).toTimeString().substring(0,5));
@@ -1028,14 +1036,12 @@ function starten_zeiten(bereich){
     }
 
     
-    
-    // alert(JSON.stringify(liste));
-    
     b.appendChild(tabelle);
 }
 
 // link, um neuen Unterricht anzulegen. Bereicht ist feld_zeile_spalte
 function ausgabe_neu(bereich){
+    
     if(''==bereich) return;
     const l=bereich.split('_');
     const zeile=l[1];
@@ -1043,16 +1049,90 @@ function ausgabe_neu(bereich){
     const b=document.getElementById(bereich);
     const neu=document.createElement('a');
     neu.innerText="neu";
-    neu.id=`neu_${spalte}_${zeile}`;
+    neu.id=`neu_${zeile}_${spalte}`;
     neu.href=`javascript:neu('${neu.id}',${zeile},${spalte})`;
     b.appendChild(neu);
+    const span = document.createElement('span');
+    span.style.fontSize='smaller';
+    span.style.backgroundColor='yellow';
+    span.id=`neu_v_${zeile}_${spalte}`;
+    Neu_v.push(span.id);
+    b.appendChild(span);
+    /*
+    b.appendChild(document.createTextNode(' '));
+    const einfuegen=document.createElement('a');
+    einfuegen.innerText='v';
+    einfuegen.href=`javascript:u_einfuegen(${zeile},${spalte})`;
+    einfuegen.style.display='none';
+    einfuegen.id=`neu_v_${zeile}_${spalte}`;
+    Neu_v.push(einfuegen.id);
+    b.appendChild(einfuegen);
+*/
+}
+
+function u_einfuegen(zeile,spalte){
+    const b=document.getElementById(`feld_${zeile}_${spalte}`);
+    // clone des Unterrichts
+    const u_neu=JSON.parse(JSON.stringify(U_zeit.find(x =>x.id==Zwischenablage.id)));
+    
+    if('tag'===Standard.typ){
+        const zeit=standardzeit(`${Standard.inhalt}`,zeile);
+        u_neu.von=zeit.von;
+        u_neu.bis=zeit.bis;
+        u_neu.klasse=Klassen_liste[spalte];
+    } else {
+        const zeit=standardzeit(`${Standard.jahreswoche}_${spalte}`,zeile);
+        u_neu.von=zeit.von;
+        u_neu.bis=zeit.bis;
+    }
+        
+    const aufruf=`stdplan_editieren_eintragen.php?typ=u_einfuegen&planung=${Standard.planung}&id=${u_neu.id}&von=${u_neu.von}&bis=${u_neu.bis}`;
+    
+    const req = getXMLHttpRequest();
+	if(! req) {alert("kann kein HttpRequest aufbauen"); return;}
+	
+	req.onreadystatechange = function(){
+		if(req.readyState == 4) {
+			const ergebnis= req.responseText;
+			if('{' != ergebnis.substr(0,1) ) {alert('Fehler (u_eintragen): '+ergebnis); return;}
+			const e= JSON.parse(ergebnis);
+			if('diagnostik'==e.ergebnis) alert("Diagnostik (u_eintragen):" + ergebnis);
+			else if('ok'!=e.ergebnis) {
+				alert("nicht erfolgreich: "+e.ergebnis+"\n"+ergebnis); 
+				return;
+            }
+            u_neu.id=e.id;
+            U_zeit.push(u_neu);
+            u_bereich(u_neu);
+            info_bereich();
+		}
+    }
+	req.open("GET",aufruf);
+	req.send(null);	
+
+    
+    
+    /*
+    // Konflikte
+    // muss das überhaupt sein?
+    const neu=document.createElement('a');
+    neu.id=`neu_${zeile}_${spalte}`;
+    neu.href=`javascript:neu('${neu.id}',${zeile},${spalte})`;
+    b.appendChild(neu);
+    b.appendChild(document.createTextNode(' '));
+    const einfuegen=document.createElement('a');
+    einfuegen.innerText='v';
+    einfuegen.href=`javascript:u_einfuegen(${zeile},${spalte})`;
+    einfuegen.style.display='none';
+    einfuegen.id=`neu_v_${zeile}_${spalte}`;
+    Neu_v.push(einfuegen.id);
+    b.appendChild(einfuegen);
+    */
 } 
 
 
-// "neue" Funktionen in lambda-Schreibweise
-
 // fügt einen Text ein als Knoten optional mit tag z.B. <b>..</b>
-const text_knoten = (eltern_knoten,text,html_tag='') => {
+function text_knoten (eltern_knoten,text,html_tag='') {
     const textknoten=document.createTextNode(text);
     if(''==html_tag) {
         eltern_knoten.appendChild(document.createTextNode(text));
@@ -1072,7 +1152,7 @@ const text_knoten = (eltern_knoten,text,html_tag='') => {
 }
 
 // fügt einen Link ein
-const link_knoten = (eltern_knoten,text,href) => {
+function link_knoten (eltern_knoten,text,href) {
     const a=document.createElement('a');
     a.setAttribute('href',href);
     text_knoten(a,text);
@@ -1080,7 +1160,7 @@ const link_knoten = (eltern_knoten,text,href) => {
 }
 
 // fügt ein Listenelement in eine Liste ein, optional als link
-const liste_knoten = (eltern_knoten,text,href='',id='',weiterer_text) => {
+function liste_knoten (eltern_knoten,text,href='',id='',weiterer_text) {
     const li=document.createElement('li');
     eltern_knoten.appendChild(li);
     if(id) li.id=id;
@@ -1105,7 +1185,8 @@ function wiederherstellen(bereich,id,neu_id=''){
         ausgabe_neu(b2.id);                    
     }
     else {
-        if(''!=U_alt.bereich) {
+        if(''!=U_alt.bereich && U_alt.id != 0) {
+            // alert(JSON.stringify(U_alt));
             const b=document.getElementById(U_alt.bereich);
             if(!b) return;
             b.innerHTML='';
@@ -1120,27 +1201,6 @@ function wiederherstellen(bereich,id,neu_id=''){
 
 
 
-// neu wiederherstellen
-// ** soll absolet
-/*
-function neu_wiederherstellen(bereich,zeile,spalte,typ,inhalt){
-    if(! bereich) return;
-    const b=document.getElementById(bereich);
-    const neu=document.createElement('a');
-    neu.innerText="neu";
-    neu.id=`neu_${zeile}_${spalte}`;
-    // '$jahreswoche',$wochentag,$editier_zeile,'$typ','$was')\
-    const v=neu_bereich.split('_'); // neu_jahr_woche_tag_zeile
-    
-    const blocktag=`${v[1]}_${v[2]}_${v[3]}`;
-    // const zeile1=v[4];
-    let typ1, was1;
-    if('dozent'==Standard.typ) typ1='dozent_id'; // ** obsolet
-    else typ1=Standard.typ;
-        neu.href=`javascript:neu('${neu.id}','${blocktag}',${zeile},'${typ}','${inhalt}')`;
-    b.appendChild(neu);
-}
-*/
     
 // zeigt den Unterricht im editiermodus
 function ausgabe_editieren(bereich,id,unterricht){
@@ -1182,7 +1242,7 @@ function ausgabe_editieren(bereich,id,unterricht){
     // dozent
     // Klasse und dozent
     if('dozent_id' == Standard.typ) {
-        const doz_name = Dozent.find(e=>e.id==unterricht.dozent_id).name ?? 'undef';
+        const doz_name = Dozenten.find(e=>e.id==unterricht.dozent_id).name ?? 'undef';
         info.appendChild(document.createTextNode(doz_name+' '));
     }
     else if('klasse'== Standard.typ)  info.appendChild(document.createTextNode(unterricht.klasse+' '));
@@ -1288,6 +1348,13 @@ function ausgabe_html(bereich,id,u){
     b.appendChild(document.createTextNode(' '));
     b.appendChild(loeschen);
     
+    // link zum kopieren
+    const kopieren=document.createElement('a');
+    kopieren.href=`javascript:u_kopieren('${bereich}',${id})`;
+    kopieren.innerText='c';
+    b.appendChild(document.createTextNode(' '));
+    b.appendChild(kopieren);
+    
     // erste Zeile info
     b.appendChild(document.createElement('br'));
     const info=document.createElement('b');
@@ -1330,15 +1397,10 @@ function ausgabe_html(bereich,id,u){
 }
     
 // Neuer Unterricht
-// function neu(bereich,jahreswoche,tag,zeile,was,inhalt){
-// function neu(bereich,blocktag,zeile,typ,inhalt){
 function neu(bereich,zeile,spalte){
 	const b=document.getElementById(bereich);
     
-
     wiederherstellen(bereich,0,b.id);
-    
-    const klassen_liste=Standard.klassen.map(e=>e.inhalt);
 	
     b.innerHTML='';
     // das alte neu löschen
@@ -1357,53 +1419,6 @@ function neu(bereich,zeile,spalte){
 
 	b.parentNode.replaceChild(p,b);
     
-    
-    
-    // als closure
-    // {'von':sekunden_von, 'bis':sekunden_bis} alles utc
-    function standardzeit(blocktag,zeile) {
-        let von;
-        let bis;
-        
-        const feld = blocktag.split('_');
-        
-        let derTag = new Date(Date.UTC(feld[0],0,1));
-        const wtag=derTag.getUTCDay();
-        if(0==wtag) derTag=new Date(Date.UTC(feld[0],0,2)); // wenn Neujahr ein Sonntag ist, fängt Montag die erste Woche an
-        else if(wtag<4) derTag=new Date(Date.UTC(feld[0]-1,11,31-(wtag-2) ));
-        else derTag=new Date(Date.UTC(feld[0],0,wtag-1));
-        
-        derTag.setDate(derTag.getDate() + (feld[1] -1)* 7 + parseInt(feld[2]));
-        
-        /*
-        else if(1==wtag); // Montag Neujahr korrekt
-        else if(2==wtag)  d=new Date(Date.UTC(feld[0]-1,11,31)); // wenn Neujahr ein Dienstag ist, fängt Silvester die erste Woche an
-        else if(3==wtag)  d=new Date(Date.UTC(feld[0]-1,11,30)); // wenn Neujahr ein Dienstag ist, fängt Silvester die erste Woche an
-        else if(5==wtag) d=new Date(Date.UTC(feld[0],0,4));
-        */
-        
-        
-		switch(zeile) {
-			case 1: von='8:30'; bis='10:00';break;
-			case 2: von='10:30'; bis='12:00';break;
-			case 3: von='12:00'; bis='13:00';break;
-			case 4: von='13:00'; bis='14:30';break;
-			default: von='15:00'; bis='16:30';break;
-			}
-		
-        const vonl=von.split(':');
-        const bisl=bis.split(':');
-        
-        
-        const vonTag= new Date(derTag.getTime());
-        vonTag.setHours(vonl[0]);
-        vonTag.setMinutes(vonl[1]);
-        const bisTag= new Date(derTag.getTime());
-        bisTag.setHours(bisl[0]);
-        bisTag.setMinutes(bisl[1]);
-		
-        return({'von':Math.floor(vonTag.getTime()/1000),'bis':Math.floor(bisTag.getTime()/1000)});
-		}
 		
     const blocktag= Standard.typ=='tag' ? `${Standard.jahreswoche}_${Standard.inhalt}` : `${Standard.jahreswoche}_${spalte}`;
     
@@ -1415,48 +1430,13 @@ function neu(bereich,zeile,spalte){
     if('dozent_id'==Standard.typ) konflikt=U_zeit.find(e => Standard.inhalt==e.dozent_id && e.bis>=zeiten.von && e.von <=zeiten.bis);
     else if('klasse'==Standard.typ) konflikt=U_zeit.find(e => Standard.inhalt==e.klasse && e.bis>=zeiten.von && e.von <=zeiten.bis);
     else if('tag'==Standard.typ) {
-        konflikt=U_zeit.find(e => klassen_liste[spalte]==e.klasse && e.bis>=zeiten.von && e.von <=zeiten.bis);
+        konflikt=U_zeit.find(e => Klassen_liste[spalte]==e.klasse && e.bis>=zeiten.von && e.von <=zeiten.bis);
     }
-    
-    /*
-    if('dozent_id'==Standard.typ) konflikt=U_zeit.find(e => Standard.inhalt==e.dozent_id && e.bis>=zeiten.von && e.von <=zeiten.bis);
-    else konflikt=U_zeit.find(e => inhalt==e.klasse && e.bis>=zeiten.von && e.von <=zeiten.bis);
-    */
-    /*
-    if('dozent_id'==inhalt){
-        konflikt=U_zeit.find(e => {
-            if(inhalt!=e.dozent_id) return(false);
-            // if(dieser_unterricht.klasse==e.klasse) return(false);
-            if(e.bis>=zeiten.von && e.von <=zeiten.bis) {
-                return(true);
-            }
-            else return(false);
-        });
-    }
-
-    else {
-        konflikt={};
-        alert("179 Konfliktbehandlung was ist "+typ);
-    }
-*/    
-    /*
-    else if('klasse'==typ){
-        const konflikt=U_zeit.find(e => {
-            // alert('null ' +dieser_unterricht.dozent_id+' id '+name_id);
-            if(name_id !=e.dozent_id) return(false);
-            if(name_id ==dieser_unterricht.dozent_id) return(false);
-            if(e.bis>=dieser_unterricht.von && e.von <=dieser_unterricht.bis) return(true);
-            else return(false);
-        });
-    */
-    
-    
-    // ** nur für typ Dozent richtig!
     
     const u={'von': zeiten.von,'bis' : zeiten.bis,'klasse': '','dozent_id': '','hinweis': '','unterrichtsform':'praesenz'};
     if('dozent_id'==Standard.typ) u.dozent_id=Standard.inhalt;
     else if('klasse'==Standard.typ) u.klasse=Standard.inhalt;
-    else u.klasse=klassen_liste[spalte];
+    else u.klasse=Klassen_liste[spalte];
 
     if(undefined!=konflikt){
         let str=JSON.stringify(konflikt);
@@ -1468,6 +1448,114 @@ function neu(bereich,zeile,spalte){
         }
     }
     else ausgabe_editieren('u_0',0,u);
+}
+
+function konflikt(unterricht) { //  : resultat
+    const resultat={'ob':0,'was':'','info':'','liste':[]};
+    
+    const liste=[];
+    
+    if('tag'===Standard.typ) {
+        // diese Klasse hat zu der Zeit Unterricht
+        const u_konflikt=U_zeit.find(x => x.klasse===unterricht.klasse && x.bis>=unterricht.von && x.von <=unterricht.bis);
+        if(u_konflikt){
+            resultat.ob=1;
+            if(u_konflikt.id==unterricht.id) resultat.was='selbst';
+            else{
+                resultat.was='klasse';
+                resultat.info=u_konflikt.klasse;
+                resultat.liste=[u_konflikt.id];
+            }
+        }
+        
+        return(resultat);
+    }
+
+    // dozent ist belegt
+    const konflikte_dozent_id=U_zeit.filter(x => unterricht.dozent_id && x.dozent_id==unterricht.dozent_id &&  x.bis>=unterricht.von && x.von <=unterricht.bis);
+    konflikte_dozent_id.forEach(x => {
+        resultat.ob=1;
+        if(x.id==unterricht.id) resultat.was='selbst';
+        else {
+            liste.push(x.id);
+            resultat.was='dozent_id';
+            resultat.info=resultat.info+` ${x.dozent} in ${x.klasse}`;
+        }
+    });
+
+    // klasse ist belegt
+    const konflikte_klasse=U_zeit.filter(x => x.klasse==unterricht.klasse &&  x.bis>=unterricht.von && x.von <=unterricht.bis);
+    konflikte_klasse.forEach(x =>{
+        resultat.ob=1;
+        if(x.id==unterricht.id) resultat.was='selbst';
+        else {
+            liste.push(x.id);
+            resultat.was='klasse';
+            resultat.info=resultat.info+` ${x.klasse} bei ${x.dozent}`;
+        }
+    });
+
+    // raum ist belegt
+    if(''=== resultat.was){
+        const konflikt_raum=U_zeit.find(x => unterricht.raum && x.raum==unterricht.raum &&  x.bis>=unterricht.von && x.von <=unterricht.bis);
+        if(konflikt_raum){
+            resultat.ob=1;
+            if(konflikt_raum.id==unterricht.id) resultat.was='selbst';
+            else {
+                resultat.was='raum';
+                resultat.info=`${konflikt_raum.raum} ${konflikt_raum.klasse} bei  ${konflikt_raum.dozent}`;
+            }
+        }
+    }
+    resultat.liste=liste;
+    return(resultat);
+}
+
+// die Unterrichtszeiten der Schule 
+function standardzeit(blocktag,zeile) {
+    let von;
+    let bis;
+    
+    const feld = blocktag.split('_');
+        
+    let derTag = new Date(Date.UTC(feld[0],0,1));
+    
+    
+    
+    const wtag=derTag.getUTCDay();
+    if(0==wtag) derTag=new Date(Date.UTC(feld[0],0,2)); // wenn Neujahr ein Sonntag ist, fängt Montag die erste Woche an
+    else if(wtag<4) derTag=new Date(Date.UTC(feld[0]-1,11,31-(wtag-2) ));
+    else derTag=new Date(Date.UTC(feld[0],0,wtag-1));
+        
+    derTag.setDate(derTag.getDate() + (feld[1] -1)* 7 + parseInt(feld[2]));
+        
+        /*
+        else if(1==wtag); // Montag Neujahr korrekt
+        else if(2==wtag)  d=new Date(Date.UTC(feld[0]-1,11,31)); // wenn Neujahr ein Dienstag ist, fängt Silvester die erste Woche an
+        else if(3==wtag)  d=new Date(Date.UTC(feld[0]-1,11,30)); // wenn Neujahr ein Dienstag ist, fängt Silvester die erste Woche an
+        else if(5==wtag) d=new Date(Date.UTC(feld[0],0,4));
+        */
+        
+        
+    switch(zeile) {
+        case 1: von='8:30'; bis='10:00';break;
+        case 2: von='10:30'; bis='12:00';break;
+        case 3: von='12:00'; bis='13:00';break;
+        case 4: von='13:00'; bis='14:30';break;
+        default: von='15:00'; bis='16:30';break;
+        }
+        		
+    const vonl=von.split(':');
+    const bisl=bis.split(':');
+        
+    const vonTag= new Date(derTag.getTime());
+    vonTag.setHours(vonl[0]);
+    vonTag.setMinutes(vonl[1]);
+    const bisTag= new Date(derTag.getTime());
+    bisTag.setHours(bisl[0]);
+    bisTag.setMinutes(bisl[1]);
+		
+    return({'von':Math.floor(vonTag.getTime()/1000),'bis':Math.floor(bisTag.getTime()/1000)});
 }
 
 
@@ -1499,17 +1587,120 @@ function u_loeschen(bereich,id){
             U_zeit.splice(U_zeit.findIndex(e => e.id==id) ,1);
             // Eintrag löschen
             if(b) b.remove();
-            const tabelle= 'stundenplan_in_planung'==Stundenplan_tabelle ? 1 : 0;
             info_bereich();
 		}
     }
 	req.open("GET",aufruf);
 	req.send(null);	
 }
-	
 
+// der Unterricht wird in die Zwischenablage kopiert
+// gelb gefärbt 
+// bei allen "neu"-Feldern, bei denen ein Einfügen möglich wäre wird das 'v' sichtbar gemacht
+function u_kopieren(bereich,id){
+    
+    const b=document.getElementById(bereich);
+    // wenn schon ein anderes Feld markiert ist, die alte Markierung löschen
+    if(Zwischenablage.id && id == Zwischenablage.id) { 
+        const b1=document.getElementById(Zwischenablage.bereich);
+        b1.style.backgroundColor=Zwischenablage.alter_hintergrund;
+        Zwischenablage.id=0;
+        Zwischenablage.bereich='';
+        Zwischenablage.alter_hintergrund='';
+        Neu_v.forEach(x=>{document.getElementById(x).style.display='none';}); 
+    }
+    else if (Zwischenablage.id) {
+        const b1=document.getElementById(Zwischenablage.bereich);
+        b1.style.backgroundColor=Zwischenablage.alter_hintergrund;
+        Zwischenablage.id=id;
+        Zwischenablage.bereich=b.id;
+        Zwischenablage.alter_hintergrund=b.style.backgroundColor;
+        b.style.backgroundColor='yellow';
+    }
+    else {
+        Zwischenablage.id=id;
+        Zwischenablage.bereich=b.id;
+        Zwischenablage.alter_hintergrund=b.style.backgroundColor;
+        b.style.backgroundColor='yellow';
+        const u=JSON.parse(JSON.stringify(U_zeit.find(x =>x.id==id))); // clone zur Prüfung ob Einfügen möglich wäre
+        const u_klasse=u.klasse;
+        const u_von=u.von;
+        const u_bis=u.bis;
+        
+        Neu_v.forEach(x=>{
+            const l = x.split('_');
+            const zeile=parseInt(l[2]);
+            const spalte=parseInt(l[3]);
+            const tag_nr = 'tag' === Standard.typ ? Standard.inhalt : spalte;
+            const zeit=standardzeit(`${Standard.jahreswoche}_${tag_nr}`,zeile);
+            
+            if('tag'===Standard.typ) u.klasse=Klassen_liste[spalte];
+            
+                      
+            u.von=zeit.von;
+            u.bis=zeit.bis;
+            
+            const b1=document.getElementById(x);
+            b1.appendChild(document.createTextNode(' '));
+            
+            const konflikt_info=konflikt(u);
+            if(0== konflikt_info.ob) {
+                const einfuegen=document.createElement('a');
+                einfuegen.innerText='v';
+                einfuegen.href=`javascript:u_einfuegen(${zeile},${spalte})`;
+                b1.appendChild(einfuegen);
+            }
+            else if('tag'==Standard.typ){
+                if('selbst' != konflikt_info.was){
+                    const u_tauschen= U_zeit.find(x => x.id ==konflikt_info.liste[0]);
+                    
+                    /*
+                    const v1= U_zeit.find(x => x.id != u_tauschen.id && x.dozent_id == u_tauschen.dozent_id && x.bis>=u_von && x.von <=u_bis);
+                    // const v1= U_zeit.find(x => x.dozent_id == u_tauschen.dozent_id && x.bis>=u_von && x.von <=u_bis);
+                    let str=u_tauschen.dozent_id;
+                    if(v1) str=u_tauschen.dozent; // alert(u_tauschen.id+' '+JSON.stringify(v1));
+                    if(v1) b1.appendChild(document.createTextNode(`${u_tauschen.dozent} keine Zeit  `));  
+                    else b1.appendChild(document.createTextNode(`${u_tauschen.dozent} hat Zeit `));
+                    // if(v1) alert(JSON.stringify(v1));
+                      
+                    const v2= U_zeit.find(x => x.id != u.id && x.dozent_id == u.dozent_id && x.bis>=u.von && x.von <=u.bis);
+                    // let str=u_tauschen.dozent_id;
+                    // if(v2) str+=' v2 '+u.dozent; // alert(u_tauschen.id+' '+JSON.stringify(v1));
+                    if(v2) b1.appendChild(document.createTextNode(`v2 ${u.dozent} keine Zeit  `));  
+                    else b1.appendChild(document.createTextNode(`v2 ${u.dozent} hat Zeit `));
+                    */
+                    
+                    const str = 'tt';
+                    
+                    if(
+                        U_zeit.find(x => x.id != u_tauschen.id && x.dozent_id == u_tauschen.dozent_id && x.bis>=u_von && x.von <=u_bis) ||
+                        U_zeit.find(x => x.id != u.id && x.dozent_id == u.dozent_id && x.bis>=u.von && x.von <=u.bis)
+                    ){
+                    //    b1.appendChild(document.createTextNode(`nicht tauschen ${str}`));
+                   // alert(JSON.stringify(u_tauschen));
+                    }
+                    else {
+                        const tauschen=document.createElement('a');
+                        tauschen.innerText=`tauschen mit ${u_klasse} ${u.dozent}`;
+                        tauschen.href=`javascript:u_tauschen(${u.id},${u_tauschen.id})`;
+                        b1.appendChild(tauschen);
+                    }
+                }
+            } else
+            // const str=JSON.stringify(konflikt_info.liste);
+            // b1.appendChild(document.createTextNode(konflikt_info.was+str+konflikt_info.info));
+            b1.appendChild(document.createTextNode(konflikt_info.info));
+                          
+       //     alert(JSON.stringify(konflikt_info));
+// alert("1555 "+zeile+' '+JSON.stringify(Neu_v));           
+        });
+    }
+}
+	
 // * soll anders gelöst werden
 // einfuegen und kopieren von Unterricht
+
+/*
 function einfuegen(bereich,jahreswoche,tag,zeile,typ,was,inhalt){
 // alert("hier "+bereich);
 	var b=document.getElementById(bereich);
@@ -1518,7 +1709,7 @@ function einfuegen(bereich,jahreswoche,tag,zeile,typ,was,inhalt){
 	if(b_letzte) {
 		var b1_letzte=b.cloneNode(true);
 		b_letzte.innerHTML='';
-		}
+    }
 	b.innerHTML=''; // damit "neu" nicht stehenbleibt
 
 	var p=document.createElement('p');
@@ -1585,95 +1776,11 @@ function einfuegen(bereich,jahreswoche,tag,zeile,typ,was,inhalt){
 	
 			// document.location.reload();
 			}
-		}
+    }
 	req.open("GET",aufruf);
 	req.send(null);			
-	}
-
-/*
-function kopieren(jahreswoche,tag,kopiertyp,was,inhalt,tabelle){
-	_kopieren(jahreswoche,tag,kopiertyp,was,inhalt,tabelle,'',tabelle);
-	}
-
-function kopieren_zwei(jahreswoche,id,kopiertyp,was,inhalt,tabelle,zielwoche,tag,zeile,ansicht){
-	var tag1 = tag+1;
-	if('unterricht'== kopiertyp) {
-		if('tag'==ansicht) var bereich="neu_"+inhalt+"_"+zielwoche+'__'+zeile;	
-		else if('klasse'==ansicht) var bereich="neu_"+inhalt+"_"+zielwoche+'_'+tag+'_'+zeile;	
-		else var bereich="neu__"+zielwoche+'_'+tag+'_'+zeile;	
-		}
-	else if('tag'==kopiertyp) {
-		if('tag'==ansicht) var bereich='tag_'+inhalt;
-		else var bereich='tag_'+tag1;
-		}
-	else if('woche'==kopiertyp) var bereich='wochenbereich';
-
-	if('unterricht'== kopiertyp && 'tag'==ansicht) _kopieren(jahreswoche,id,kopiertyp,was,inhalt,tabelle,zielwoche,tag,zeile,bereich);
-	else _kopieren(jahreswoche,id,kopiertyp,was,inhalt,tabelle,zielwoche,tag1,zeile,bereich);
-// kopieren('2018_18',0,'woche','tag','4','stundenplan_in_planung')
-// javascript:kopieren_zwei('2018_16',0,'woche','klasse'=tag,'TAG'Nr,'stundenplan','2018_18',0,0,'tag')
-	}
-
-
-function _kopieren(jahreswoche,tag,kopiertyp,was,inhalt,tabelle,zielwoche,zieltag,zeile,bereich){	
-
-	// var b = document.getElementById(bereich);
-	// if(!b) alert("Programmfehler Bereich "+bereich);
-// getElementsByTagName
-	var aufruf="stdplan_editieren_eintragen.php?typ=kopieren&kopiertyp=" +kopiertyp+ "&jahreswoche=" +jahreswoche+ "&tag="+ tag + 
-		"&was=" + was+
-		"&inhalt=" +inhalt+ "&tabelle=" +tabelle;
-	// Markierung erzeugen oder löschen
-	var req = getXMLHttpRequest();
-	if(! req) {alert("kann kein HttpRequest aufbauen"); return;}
-
-	req.onreadystatechange = function(){
-		if(req.readyState == 4) {
-			var ergebnis= req.responseText;
-			if('{' != ergebnis.substr(0,1) ) {alert('Fehler (kopieren): '+ergebnis); return;}
-			var e= JSON.parse(ergebnis);
-			if('diagnostik'==e.ergebnis) alert("Diagnostik (kopieren):" + ergebnis);
-			else if('ok'!=e.ergebnis) {
-				alert("nicht erfolgreich: "+e.ergebnis+"\n"+ergebnis); 
-				return;
-				}	
-			// b.style.background=e.farbe;
-			liste=e.loeschen;
-
-			for(var i=0 ;i<liste.length;i++) {
-				var b=document.getElementById(liste[i]);
-				if(b) b.style.background='';
-				}
-			liste=e.markieren;
-			for(var i=0 ;i<liste.length;i++) {
-				var b=document.getElementById(liste[i]);
-				if(b) b.style.background=e.farbe;
-				}
-			// die Links zum einfügen aktivieren oder deaktivieren
-			liste_aus=e.display_aus;
-			for(var i=0;i<liste_aus.length;i++) {
-				var b=document.getElementById(liste_aus[i]);
-				if(b) b.style.display='none';
-				}
-			liste_an=e.display_an;
-			for(var i=0;i<liste_an.length;i++) {
-				var b=document.getElementById(liste_an[i]);
-				if(b) b.style.display='inline';
-				}
-			if(zielwoche){
-				if (e.markieren.length > 0) {
-					if('woche'==kopiertyp && 'tag'== was) inhalt++; // ** CHEAT
-// alert("\neinfuegen("+bereich+','+zielwoche+','+zieltag+','+zeile+','+kopiertyp+','+was+','+inhalt+');');
-					einfuegen(bereich,zielwoche,zieltag,zeile,kopiertyp,was,inhalt);
-					}
-				}
-			}
-		}
-	req.open("GET",aufruf);
-	req.send(null);			
-	}
+}
 */
-
 
 /*+++++++++++++++++
 + Aktivierung
@@ -1786,7 +1893,7 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
     
     if('dozent_id'==typ) {
         if (ob_alle) soll_liste=Alle_lf; 
-        else Standard.klassen.forEach(e=>e.soll.forEach(e1=>{
+        else U_soll.forEach(e=>e.soll.forEach(e1=>{
             if(e1.id==Standard.inhalt) {e1.name=e.inhalt; soll_liste.push(e1);}
         }));
     }
@@ -1794,15 +1901,15 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
         if(ob_alle){
             // name id soll
             const soll_alle=Alle_lf.find(x => x.klasse===vorauswahl.klasse).soll;
-            Dozent.forEach(x => soll_liste.push( {name: x.name, id: x.id, soll: soll_alle}));
+            Dozenten.forEach(x => soll_liste.push( {name: x.name, id: x.id, soll: soll_alle}));
         }
         else {
-            const soll=Standard.klassen.find(e=>e.inhalt==vorauswahl.klasse);
+            const soll=U_soll.find(e=>e.inhalt==vorauswahl.klasse);
             soll_liste=soll.soll;
         }
        
     } 
-    
+        
 	// dargestellt als Liste hellgraues Feld mit kleinerer Schrift
 	const auswahl=document.createElement('ul');
 	auswahl.style.backgroundColor="#eeeeee";
@@ -1827,6 +1934,8 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
         if (ob_alle){
             if('dozent_id'===Standard.typ) name = soll_liste[i].klasse;
             else if('klasse'===Standard.typ) name=soll_liste[i].name;
+            else  name=soll_liste[i].name;
+            
             soll_liste[i].name=name; // ** damit Konflikt funktioniert
           // if (soll_liste[i].schwerpunkt) name+=` ${soll_liste[i].schwerpunkt}`;
           // ** funktioniert nicht für alle Typen
@@ -1839,8 +1948,7 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
         const tag_nr= v==0 ? 7 : v-1;
         const von_zeit=(von_date.getHours()*3600)+von_date.getMinutes()*60;
         const bis_zeit=(bis_date.getHours()*3600)+bis_date.getMinutes()*60;
-       
-        
+               
         // belegt ermitteln 
         const belegt={'status':'ok','text':'', 'farbe':''};
         if('dozent_id'==typ){ 
@@ -1856,7 +1964,6 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
         }
         else {
             // normale Zeiten Unterricht hell blauer Hintergrund
-            
             const normale_zeiten = Wo_ist.find(x =>x.dozent_id==soll_liste[i].id
                 && dieser_unterricht.dozent_id
                 && tag_nr==x.tag
@@ -1941,9 +2048,11 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
 			// hier erfolgt für alle items die Übergabe der vorauswahl
 		    
             if( ('klasse'==Standard.typ && vorauswahl_id !=soll_liste[i].id) 
-                || ('dozent_id' ==Standard.typ && vorauswahl_id!=soll_liste[i].name) )
+                || ('dozent_id' ==Standard.typ && vorauswahl_id!=soll_liste[i].name) 
+                || ('tag'==Standard.typ && vorauswahl_id!=soll_liste[i].id)
+                || ('raum'==Standard.typ && vorauswahl_id!=soll_liste[i].id)
+            )
 			sub_ul.style.display='none';
-        
                 
 			// die einzelnen Lernfelder 
             for(const lf of lernfelder){
@@ -1951,10 +2060,11 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
                     lf.dozent_id=soll_liste[i].id;
                     lf.dozent=soll_liste[i].name;
                 }
-                
+                /*
                 const sub_name=('tag'==typ) ? 
                     `${lf.klasse} ${lf.lernfeld} ${lf.schwerpunkt}` 
-                    : `${lf.lernfeld} ${lf.schwerpunkt}`;
+                    : `${lf.lernfeld} ${lf.schwerpunkt}`; */
+                const sub_name=`${lf.lernfeld} ${lf.schwerpunkt}`;
                 const sollstunden=lf.sollstunden ?? '';
 
                 // Unterliste
@@ -1965,12 +2075,12 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
                 lf.unterrichtsform=dieser_unterricht.unterrichtsform;
                 const json_ausgewaehlt=JSON.stringify(lf);
                 const href=`javascript:aktiviere_lernfeld('u_${id}',${id},'${typ}','${json_ausgewaehlt}')`;
-                // if(ob_alle) alert("1949 "+href);
                 // das ausgewählte Lernfeld bold
 				if(vorauswahl.klasse==lf.klasse 
 					&& vorauswahl.lernfeld_id==lf.lernfeld_id 
 					&& vorauswahl.schwerpunkt_id==lf.schwerpunkt_id){ 
-                        text_knoten(sub_li,sub_name,'b');
+                    if('klasse'===Standard.typ && vorauswahl.dozent_id == soll_liste[i].id) text_knoten(sub_li,sub_name,'b');
+                    else link_knoten(sub_li,sub_name,href);
                 }
                 else link_knoten(sub_li,sub_name,href);
                 
@@ -2029,8 +2139,7 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
 			auswahl.appendChild(sub_ul);
 			}
 
-            if(0==vorauswahl.lernfeld_id) text_knoten(sub_ul,'ohne Lernfeld','b');
-            else link_knoten(sub_ul,'ohne Lernfeld',`javascript:aktiviere_lernfeld('u_${id}',${id},'${typ}','${JSON.stringify(nix)}')`);
+            link_knoten(sub_ul,'ohne Lernfeld',`javascript:aktiviere_lernfeld('u_${id}',${id},'${typ}','${JSON.stringify(nix)}')`);
 		}
 
 	// am Ende für Klasse "ohne Lehrer" und "alle"
@@ -2042,9 +2151,7 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
             sub_ul.style.display='none';
             link_knoten(auswahl,"ohne Lehrer mit LF",`javascript:sub_anzeigen('${sub_ul.id}')`);
 
-            // const lernfelder=Standard.klassen.find(e=>e.inhalt==vorauswahl.klasse).alle.find(x=>x.id=Dozent[0].id).soll;
             const lernfelder=Alle_lf.find(x=>x.klasse===vorauswahl.klasse).soll;
-            // Dozent[0].id ** totoal blöde, dass bei alle für jeden dozenten und Klasse das gleiche wiederholt wird. dirty 
             
             for(const lf of lernfelder){
                 const sub_name=lf.schwerpunkt ? `${lf.lernfeld}  ${lf.schwerpunkt}` 
@@ -2067,7 +2174,8 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
                 // das ausgewählte Lernfeld bold
 				if(vorauswahl.klasse==lf.klasse 
 					&& vorauswahl.lernfeld_id==lf.lernfeld_id 
-					&& vorauswahl.schwerpunkt_id==lf.schwerpunkt_id){ 
+					&& vorauswahl.schwerpunkt_id==lf.schwerpunkt_id
+                    && ! vorauswahl.dozent_id){ 
                         text_knoten(sub_li,sub_name,'b');
                 }
                 else link_knoten(sub_li,sub_name,href);
@@ -2080,13 +2188,20 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
             const ohne_alles ={'klasse':Standard.inhalt,'klasse_id':0,
                 'lernfeld_id':0,'lernfeld':'','schwerpunkt_id':0,'schwerpunkt':0,'sollstunden':0,
                 'dozent_id':0,'dozent':'','von':dieser_unterricht.von, 'bis':dieser_unterricht.bis,'unterrichtsform': 'sol', 'hinweis': 'selbst organisiert'};
-        link_knoten(auswahl,"ohne Lehrer ohne LF",`javascript:aktiviere_lernfeld('u_${id}',${id},'${typ}','${JSON.stringify(ohne_alles)}')`);
-        auswahl.appendChild(document.createElement('br'));
+            link_knoten(auswahl,"ohne Lehrer ohne LF",`javascript:aktiviere_lernfeld('u_${id}',${id},'${typ}','${JSON.stringify(ohne_alles)}')`);
+            auswahl.appendChild(document.createElement('br'));
         }
     }
 	
 	if(! ob_alle) {
  
+        if('tag'===Standard.typ){
+            const ohne_alles ={'klasse':Standard.inhalt,'klasse_id':0,
+                'lernfeld_id':0,'lernfeld':'','schwerpunkt_id':0,'schwerpunkt':0,'sollstunden':0,
+                'dozent_id':0,'dozent':'','von':dieser_unterricht.von, 'bis':dieser_unterricht.bis,'unterrichtsform': 'sol', 'hinweis': 'selbst organisiert'};
+            link_knoten(auswahl,"ohne Lehrer ohne LF",`javascript:aktiviere_lernfeld('u_${id}',${id},'${typ}','${JSON.stringify(ohne_alles)}')`);
+            auswahl.appendChild(document.createElement('br'));
+        }
 
 		const json_vorauswahl=JSON.stringify(vorauswahl); // ** falsch
 		link_knoten(auswahl,"alle",`javascript:auswahl_alle(${id},'${typ}','${json_vorauswahl}')`);
@@ -2098,22 +2213,6 @@ function _auswahl(id,typ,vorauswahl,ob_alle,neuerUnterricht={}){
 /*+++++++++++++++
 + schicke = Ajax-Kommunikation
 ++++++++++++++++*/
-
-/*
-// Objekt für die Übergaben
-function Vorauswahl() {
-	this.klasse_id=0;
-	this.klasse='';
-	this.dozent_id=0;
-	this.dozent=''; 
-	this.lernfeld_id=0;
-	this.lernfeld='';
-    this.thema_id=0;
-    this.thema='';
-	this.schwerpunkt_id=0;
-	this.schwerpunkt='';
-	};
-*/
 
 // onchange für die Lernfelder 
 function aktiviere_lernfeld(bereich,id,typ,json_auswahl){
@@ -2250,10 +2349,10 @@ function info_bereich(){
     // was für klassen und dozent_id unterschiedlich ist
     let soll_klassen=[];
     if ('klasse'==Standard.typ) {
-        const l=Standard.klassen.find(e=>e.inhalt==Standard.inhalt);
+        const l=U_soll.find(e=>e.inhalt==Standard.inhalt);
         if(l) soll_klassen=l.soll;
     }
-    else soll_klassen=Standard.klassen;
+    else soll_klassen=U_soll;
 
     const _ist_liste= (dozent_id,klasse) => U_zeit.filter(e=> e.dozent_id==dozent_id && e.klasse==klasse);
 
@@ -2339,7 +2438,7 @@ function info_bereich(){
     else if('dozent_id'==Standard.typ){
         
         const dozent_summe=Math.round(U_zeit.filter(x=>x.dozent_id==Standard.inhalt).map(x=>x.bis-x.von).reduce((sum,x)=>sum+x,0 )/ (60*45));        
-        b.appendChild(document.createTextNode(`Gesamt ${Dozent.find(x => x.id==Standard.inhalt).name}: ${dozent_summe}`));
+        b.appendChild(document.createTextNode(`Gesamt ${Dozenten.find(x => x.id==Standard.inhalt).name}: ${dozent_summe}`));
         b.appendChild(document.createElement('p'));
                
         // alle Klassen wo der Dozent unterrichtet hat oder hätte sollen
